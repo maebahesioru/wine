@@ -1987,7 +1987,10 @@ static void STDMETHODCALLTYPE d2d_device_context_Clear(ID2D1DeviceContext6 *ifac
 
     if (context->target.type == D2D_TARGET_COMMAND_LIST)
     {
-        d2d_command_list_clear(context->target.command_list, colour);
+        /* Don't record Clear() into command lists: replaying the list would
+         * clear the destination target, destroying previously drawn content.
+         * Applications record clear-only command lists and depend on them
+         * not affecting the destination. */
         return;
     }
 
