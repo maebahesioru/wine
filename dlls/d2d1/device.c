@@ -2433,7 +2433,10 @@ static HRESULT STDMETHODCALLTYPE d2d_device_context_GetImageLocalBounds(ID2D1Dev
     struct d2d_device_context *context = impl_from_ID2D1DeviceContext(iface);
     D2D_SIZE_U pixel_size;
     ID2D1Bitmap *bitmap;
+    ID2D1Effect *effect;
+    ID2D1Image *input;
     D2D_SIZE_F size;
+    HRESULT hr;
 
     TRACE("iface %p, image %p, local_bounds %p.\n", iface, image, local_bounds);
 
@@ -2463,20 +2466,75 @@ static HRESULT STDMETHODCALLTYPE d2d_device_context_GetImageLocalBounds(ID2D1Dev
 
         return S_OK;
     }
+    else if (SUCCEEDED(ID2D1Image_QueryInterface(image, &IID_ID2D1Effect, (void **)&effect)))
+    {
+        /* Effect outputs inherit the bounds of the effect input. This is
+         * exact for pass-through effects and a reasonable approximation for
+         * stub effects which do not render anything yet. */
+        ID2D1Effect_GetInput(effect, 0, &input);
+        ID2D1Effect_Release(effect);
+
+        if (input)
+        {
+            hr = d2d_device_context_GetImageLocalBounds(iface, input, local_bounds);
+            ID2D1Image_Release(input);
+            return hr;
+        }
+
+        /* An effect without a connected input has empty bounds. */
+        local_bounds->left = 0.0f;
+        local_bounds->top = 0.0f;
+        local_bounds->right = 0.0f;
+        local_bounds->bottom = 0.0f;
+
+        return S_OK;
+    }
     else
     {
-        FIXME("Unable to get local bounds of image %p.\n", image);
+        ID2D1CommandList *command_list;
 
-        return E_NOTIMPL;
+        if (SUCCEEDED(ID2D1Image_QueryInterface(image, &IID_ID2D1CommandList, (void **)&command_list)))
+        {
+            /* Command lists do not carry bounds information; report empty
+             * bounds, matching the behavior of an empty drawing. */
+            local_bounds->left = 0.0f;
+            local_bounds->top = 0.0f;
+            local_bounds->right = 0.0f;
+            local_bounds->bottom = 0.0f;
+
+            ID2D1CommandList_Release(command_list);
+
+            return S_OK;
+        }
     }
+
+    FIXME("Unable to get local bounds of image %p.\n", image);
+
+    return E_NOTIMPL;
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_device_context_GetImageWorldBounds(ID2D1DeviceContext6 *iface,
         ID2D1Image *image, D2D1_RECT_F *world_bounds)
 {
-    FIXME("iface %p, image %p, world_bounds %p stub!\n", iface, image, world_bounds);
+    struct d2d_device_context *context = impl_from_ID2D1DeviceContext(iface);
+    D2D1_RECT_F local_bounds;
+    D2D1_MATRIX_3X2_F transform;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, image %p, world_bounds %p.\n", iface, image, world_bounds);
+
+    hr = d2d_device_context_GetImageLocalBounds(iface, image, &local_bounds);
+    if (FAILED(hr))
+        return hr;
+
+    d2d_device_context_GetTransform(&context->ID2D1DeviceContext6_iface, &transform);
+
+    world_bounds->left = local_bounds.left * transform.m11 + local_bounds.top * transform.m21 + transform.dx;
+    world_bounds->top = local_bounds.left * transform.m12 + local_bounds.top * transform.m22 + transform.dy;
+    world_bounds->right = local_bounds.right * transform.m11 + local_bounds.bottom * transform.m21 + transform.dx;
+    world_bounds->bottom = local_bounds.right * transform.m12 + local_bounds.bottom * transform.m22 + transform.dy;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_device_context_GetGlyphRunWorldBounds(ID2D1DeviceContext6 *iface,
