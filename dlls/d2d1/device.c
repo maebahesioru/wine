@@ -2072,8 +2072,12 @@ static HRESULT STDMETHODCALLTYPE d2d_device_context_EndDraw(ID2D1DeviceContext6 
 
     if (context->target.type == D2D_TARGET_COMMAND_LIST)
     {
-        FIXME("Unimplemented for command list target.\n");
-        return E_NOTIMPL;
+        if (tag1)
+            *tag1 = context->error.tag1;
+        if (tag2)
+            *tag2 = context->error.tag2;
+
+        return context->error.code;
     }
 
     if (tag1)
